@@ -41,6 +41,30 @@ var (
 
 	// Digest pattern
 	digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+
+	// Platform validation lookups — allocated once, read-only after init
+	validPlatformOS = map[string]bool{
+		"linux": true, "darwin": true, "windows": true,
+		"freebsd": true, "netbsd": true, "openbsd": true,
+		"solaris": true, "aix": true,
+	}
+	validPlatformArch = map[string]bool{
+		"amd64": true, "arm64": true, "arm": true, "386": true,
+		"ppc64le": true, "ppc64": true, "s390x": true,
+		"mips64le": true, "mips64": true, "riscv64": true,
+	}
+
+	// Export type validation lookup
+	validExportTypes = map[string]bool{
+		"image": true, "oci": true, "docker": true,
+		"local": true, "tar": true, "registry": true,
+	}
+
+	// Cache type validation lookup
+	validCacheTypes = map[string]bool{
+		"registry": true, "inline": true, "local": true,
+		"s3": true, "azblob": true, "gha": true,
+	}
 )
 
 // ValidateGitRef validates a git reference (branch, tag, or commit SHA)
@@ -356,13 +380,10 @@ func ValidateBuildctlArg(arg string) error {
 // Validates both the key and checks the value for dangerous characters
 func ValidateBuildArgKeyValue(buildArg string) error {
 	// Must be in key=value format
-	if !strings.Contains(buildArg, "=") {
+	key, value, ok := strings.Cut(buildArg, "=")
+	if !ok {
 		return fmt.Errorf("build arg must be in key=value format")
 	}
-
-	parts := strings.SplitN(buildArg, "=", 2)
-	key := parts[0]
-	value := parts[1]
 
 	// Validate key using existing function
 	if err := ValidateBuildArg(key); err != nil {
@@ -379,17 +400,7 @@ func ValidateBuildArgKeyValue(buildArg string) error {
 
 // ValidateExportType validates buildctl export type
 func ValidateExportType(exportType string) error {
-	// Allowlist of valid export types for buildctl
-	validTypes := map[string]bool{
-		"image":    true,
-		"oci":      true,
-		"docker":   true,
-		"local":    true,
-		"tar":      true,
-		"registry": true,
-	}
-
-	if !validTypes[exportType] {
+	if !validExportTypes[exportType] {
 		return fmt.Errorf("invalid export type: %s (must be one of: image, oci, docker, local, tar, registry)", exportType)
 	}
 
@@ -443,35 +454,13 @@ func ValidatePlatform(platform string) error {
 		return fmt.Errorf("platform must be in format os/arch[/variant], got: %s", platform)
 	}
 
-	// Validate OS (allowlist)
-	validOS := map[string]bool{
-		"linux":   true,
-		"darwin":  true,
-		"windows": true,
-		"freebsd": true,
-		"netbsd":  true,
-		"openbsd": true,
-		"solaris": true,
-		"aix":     true,
-	}
-	if !validOS[parts[0]] {
+	// Validate OS (allowlist — package-level map, no allocation)
+	if !validPlatformOS[parts[0]] {
 		return fmt.Errorf("invalid OS in platform: %s", parts[0])
 	}
 
-	// Validate architecture (allowlist)
-	validArch := map[string]bool{
-		"amd64":    true,
-		"arm64":    true,
-		"arm":      true,
-		"386":      true,
-		"ppc64le":  true,
-		"ppc64":    true,
-		"s390x":    true,
-		"mips64le": true,
-		"mips64":   true,
-		"riscv64":  true,
-	}
-	if !validArch[parts[1]] {
+	// Validate architecture (allowlist — package-level map, no allocation)
+	if !validPlatformArch[parts[1]] {
 		return fmt.Errorf("invalid architecture in platform: %s", parts[1])
 	}
 
@@ -518,30 +507,21 @@ func ValidateBuildKitCacheSpec(spec string) error {
 	}
 
 	// First pair must specify a valid type
-	first := strings.SplitN(pairs[0], "=", 2)
-	if len(first) != 2 || first[0] != "type" {
+	typeKey, typeVal, ok := strings.Cut(pairs[0], "=")
+	if !ok || typeKey != "type" {
 		return fmt.Errorf("cache spec must begin with type=<value> (e.g., type=registry)")
 	}
-	validTypes := map[string]bool{
-		"registry": true,
-		"inline":   true,
-		"local":    true,
-		"s3":       true,
-		"azblob":   true,
-		"gha":      true,
-	}
-	cacheType := first[1]
-	if !validTypes[cacheType] {
-		return fmt.Errorf("invalid cache type: %q (must be one of: registry, inline, local, s3, azblob, gha)", cacheType)
+	if !validCacheTypes[typeVal] {
+		return fmt.Errorf("invalid cache type: %q (must be one of: registry, inline, local, s3, azblob, gha)", typeVal)
 	}
 
 	// Validate each key=value pair format
 	for _, pair := range pairs[1:] {
-		kv := strings.SplitN(pair, "=", 2)
-		if len(kv) != 2 {
+		k, _, ok := strings.Cut(pair, "=")
+		if !ok {
 			return fmt.Errorf("cache spec pair %q is not in key=value format", pair)
 		}
-		if kv[0] == "" {
+		if k == "" {
 			return fmt.Errorf("cache spec has empty key in pair %q", pair)
 		}
 	}
@@ -658,13 +638,10 @@ func ValidateGitURL(url string) error {
 // Similar to build args but with different key requirements
 func ValidateLabelKeyValue(label string) error {
 	// Must be in key=value format
-	if !strings.Contains(label, "=") {
+	key, value, ok := strings.Cut(label, "=")
+	if !ok {
 		return fmt.Errorf("label must be in key=value format")
 	}
-
-	parts := strings.SplitN(label, "=", 2)
-	key := parts[0]
-	value := parts[1]
 
 	// Check for null bytes
 	if strings.Contains(key, "\x00") || strings.Contains(value, "\x00") {
