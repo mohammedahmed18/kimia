@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Git reference validation patterns
+// Pre-compiled regex patterns — compiled once at package init, not per-call.
 var (
 	// gitRefPattern matches valid git branch/tag/ref names
 	// Allows: alphanumeric, dash, underscore, dot, forward slash
@@ -20,6 +20,27 @@ var (
 
 	// Docker tag pattern
 	tagPattern = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}$`)
+
+	// Build arg key pattern: uppercase letters/underscores
+	buildArgKeyPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+
+	// Registry host pattern (DNS hostname)
+	registryHostPattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$`)
+
+	// Registry port pattern
+	registryPortPattern = regexp.MustCompile(`^[0-9]{1,5}$`)
+
+	// Platform variant pattern
+	platformVariantPattern = regexp.MustCompile(`^v[0-9]+$`)
+
+	// Secret ID pattern
+	secretIDPattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*$`)
+
+	// Label key pattern (allows dots, slashes for namespacing)
+	labelKeyPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9._/-]*[a-z0-9])?$`)
+
+	// Digest pattern
+	digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 )
 
 // ValidateGitRef validates a git reference (branch, tag, or commit SHA)
@@ -240,12 +261,7 @@ func ValidateBuildArg(key string) error {
 	}
 
 	// Build arg keys should be simple identifiers
-	matched, err := regexp.MatchString(`^[A-Z_][A-Z0-9_]*$`, key)
-	if err != nil {
-		return fmt.Errorf("failed to validate build arg key: %v", err)
-	}
-
-	if !matched {
+	if !buildArgKeyPattern.MatchString(key) {
 		return fmt.Errorf("invalid build arg key format: %s (must be uppercase with underscores)", key)
 	}
 
@@ -297,24 +313,19 @@ func ValidateRegistryHost(host string) error {
 		return fmt.Errorf("registry host contains null byte")
 	}
 
-	// Basic hostname validation (simplified)
-	// Full DNS validation is complex; this catches obvious issues
-	hostPattern := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$`)
-
 	// Check for port
 	hostOnly := host
 	if idx := strings.LastIndex(host, ":"); idx != -1 {
 		hostOnly = host[:idx]
 		port := host[idx+1:]
-		
+
 		// Validate port is numeric and in valid range
-		portPattern := regexp.MustCompile(`^[0-9]{1,5}$`)
-		if !portPattern.MatchString(port) {
+		if !registryPortPattern.MatchString(port) {
 			return fmt.Errorf("invalid port in registry host: %s", port)
 		}
 	}
 
-	if !hostPattern.MatchString(hostOnly) {
+	if !registryHostPattern.MatchString(hostOnly) {
 		return fmt.Errorf("invalid registry host format: %s", hostOnly)
 	}
 
@@ -466,8 +477,7 @@ func ValidatePlatform(platform string) error {
 
 	// Variant validation if present
 	if len(parts) == 3 {
-		variantPattern := regexp.MustCompile(`^v[0-9]+$`)
-		if !variantPattern.MatchString(parts[2]) {
+		if !platformVariantPattern.MatchString(parts[2]) {
 			return fmt.Errorf("invalid variant in platform: %s (must be v<number>)", parts[2])
 		}
 	}
@@ -555,8 +565,7 @@ func ValidateSecretID(secretID string) error {
 	}
 
 	// Secret IDs should be simple alphanumeric identifiers
-	pattern := regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*$`)
-	if !pattern.MatchString(secretID) {
+	if !secretIDPattern.MatchString(secretID) {
 		return fmt.Errorf("invalid secret ID: %s (must start with letter, contain only alphanumeric/underscore/hyphen)", secretID)
 	}
 
@@ -664,8 +673,7 @@ func ValidateLabelKeyValue(label string) error {
 
 	// Label keys can contain dots, slashes (for namespacing)
 	// Format: [prefix/]name where prefix is often a reverse domain
-	labelPattern := regexp.MustCompile(`^[a-z0-9]([a-z0-9._/-]*[a-z0-9])?$`)
-	if !labelPattern.MatchString(key) {
+	if !labelKeyPattern.MatchString(key) {
 		return fmt.Errorf("invalid label key format: %s", key)
 	}
 
@@ -744,7 +752,6 @@ func ValidateImageReference(ref string) error {
 	// Validate digest if present
 	if digestIdx != -1 {
 		digest := ref[digestIdx+1:]
-		digestPattern := regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 		if !digestPattern.MatchString(digest) {
 			return fmt.Errorf("invalid digest format: %s", digest)
 		}
