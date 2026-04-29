@@ -448,26 +448,41 @@ func ValidatePlatform(platform string) error {
 		return fmt.Errorf("invalid platform: %v", err)
 	}
 
-	// Must contain at least os/arch
-	parts := strings.Split(platform, "/")
-	if len(parts) < 2 || len(parts) > 3 {
+	// Must contain at least os/arch — parse without allocating a []string
+	first := strings.IndexByte(platform, '/')
+	if first < 0 {
 		return fmt.Errorf("platform must be in format os/arch[/variant], got: %s", platform)
+	}
+	osStr := platform[:first]
+	rest := platform[first+1:]
+
+	second := strings.IndexByte(rest, '/')
+	var archStr, variantStr string
+	if second < 0 {
+		archStr = rest
+	} else {
+		archStr = rest[:second]
+		variantStr = rest[second+1:]
+		// Check there's no fourth component
+		if strings.IndexByte(variantStr, '/') >= 0 {
+			return fmt.Errorf("platform must be in format os/arch[/variant], got: %s", platform)
+		}
 	}
 
 	// Validate OS (allowlist — package-level map, no allocation)
-	if !validPlatformOS[parts[0]] {
-		return fmt.Errorf("invalid OS in platform: %s", parts[0])
+	if !validPlatformOS[osStr] {
+		return fmt.Errorf("invalid OS in platform: %s", osStr)
 	}
 
 	// Validate architecture (allowlist — package-level map, no allocation)
-	if !validPlatformArch[parts[1]] {
-		return fmt.Errorf("invalid architecture in platform: %s", parts[1])
+	if !validPlatformArch[archStr] {
+		return fmt.Errorf("invalid architecture in platform: %s", archStr)
 	}
 
 	// Variant validation if present
-	if len(parts) == 3 {
-		if !platformVariantPattern.MatchString(parts[2]) {
-			return fmt.Errorf("invalid variant in platform: %s (must be v<number>)", parts[2])
+	if variantStr != "" {
+		if !platformVariantPattern.MatchString(variantStr) {
+			return fmt.Errorf("invalid variant in platform: %s (must be v<number>)", variantStr)
 		}
 	}
 

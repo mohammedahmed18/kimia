@@ -272,23 +272,35 @@ func convertAttestationConfigs(mainConfigs []AttestationConfig) []build.Attestat
 }
 
 // sanitizeForOutput removes control characters and limits length
-// for safe terminal output
+// for safe terminal output. Only allows printable ASCII (0x20..0x7E).
 func sanitizeForOutput(input string, maxLen int) string {
-	// Remove control characters, null bytes, and escape sequences
-	var sanitized strings.Builder
-	for _, r := range input {
-		// Only allow printable ASCII characters (space through tilde)
-		if r >= 32 && r <= 126 {
-			sanitized.WriteRune(r)
+	// Fast path: if all bytes are printable ASCII and within length, return as-is.
+	allClean := true
+	for i := 0; i < len(input); i++ {
+		if input[i] < 32 || input[i] > 126 {
+			allClean = false
+			break
+		}
+	}
+	if allClean {
+		if len(input) > maxLen {
+			return input[:maxLen] + "..."
+		}
+		return input
+	}
+
+	// Slow path: filter non-printable bytes
+	buf := make([]byte, 0, len(input))
+	for i := 0; i < len(input); i++ {
+		b := input[i]
+		if b >= 32 && b <= 126 {
+			buf = append(buf, b)
 		}
 	}
 
-	result := sanitized.String()
-
-	// Limit length
-	if len(result) > maxLen {
-		result = result[:maxLen] + "..."
+	if len(buf) > maxLen {
+		return string(buf[:maxLen]) + "..."
 	}
 
-	return result
+	return string(buf)
 }
