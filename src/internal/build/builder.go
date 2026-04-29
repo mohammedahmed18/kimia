@@ -1835,17 +1835,15 @@ func sanitizeCommandArgs(args []string) []string {
 	for i, arg := range args {
 		if strings.HasPrefix(arg, "context=") || strings.HasPrefix(arg, "dockerfile=") {
 			// Handle --opt context=URL or --opt dockerfile=URL format
-			parts := strings.SplitN(arg, "=", 2)
-			if len(parts) == 2 {
-				sanitized[i] = parts[0] + "=" + logger.SanitizeGitURL(parts[1])
+			if key, val, ok := strings.Cut(arg, "="); ok {
+				sanitized[i] = key + "=" + logger.SanitizeGitURL(val)
 			} else {
 				sanitized[i] = arg
 			}
 		} else if strings.HasPrefix(arg, "build-arg:") {
 			// Handle --opt build-arg:KEY=VALUE format
-			parts := strings.SplitN(arg, "=", 2)
-			if len(parts) == 2 {
-				argName := strings.TrimPrefix(parts[0], "build-arg:")
+			if key, _, ok := strings.Cut(arg, "="); ok {
+				argName := strings.TrimPrefix(key, "build-arg:")
 				// Check if this is a sensitive build arg
 				isSensitive := false
 				for _, sensitive := range sensitiveArgs {
@@ -1855,7 +1853,7 @@ func sanitizeCommandArgs(args []string) []string {
 					}
 				}
 				if isSensitive {
-					sanitized[i] = parts[0] + "=***REDACTED***"
+					sanitized[i] = key + "=***REDACTED***"
 				} else {
 					sanitized[i] = arg
 				}
